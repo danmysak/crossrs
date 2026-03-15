@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from crossrs.db import get_session
 from crossrs.db.models import EvaluationCache, Sentence, TranslationCache
+from crossrs.utils.openai import api_call_with_retries
 from crossrs.utils.strings import normalize
 
 __all__ = [
@@ -73,12 +74,12 @@ def generate_evaluation_prompt(
 
 def request_translation(sentence: str, target_lang: str, source_lang: str, model: str, api_key: str) -> str:
     """Request translation of a sentence from target to source language."""
-    return OpenAI(api_key=api_key).responses.parse(
+    return api_call_with_retries(lambda: OpenAI(api_key=api_key).responses.parse(
         model=model,
         temperature=TEMPERATURE,
         text_format=TranslationOutput,
         input=generate_translation_prompt(target_lang, source_lang, sentence),
-    ).output_parsed.translation
+    ).output_parsed.translation)
 
 
 def translate_to_source(sentence: Sentence, target_lang: str, source_lang: str,
@@ -106,13 +107,13 @@ def request_evaluation(source_translation: str, user_translation: str,
                        target_lang: str, source_lang: str, model: str,
                        api_key: str) -> EvaluationOutput:
     """Request LLM evaluation of the user's translation."""
-    return OpenAI(api_key=api_key).responses.parse(
+    return api_call_with_retries(lambda: OpenAI(api_key=api_key).responses.parse(
         model=model,
         temperature=TEMPERATURE,
         text_format=EvaluationOutput,
         input=generate_evaluation_prompt(target_lang, source_lang,
                                          source_translation, user_translation),
-    ).output_parsed
+    ).output_parsed)
 
 
 def cached_evaluation(sentence: Sentence, source_translation: str, user_translation: str,

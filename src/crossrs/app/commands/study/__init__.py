@@ -143,21 +143,28 @@ def study(
         # Background preparation results (IDs to be merged into main session)
         _bg_sentence_id: int
         _bg_target_word_id: int | None
+        _bg_error: BaseException | None = None
 
         def prepare_next() -> None:
             """Choose the next sentence and translate it in a separate session."""
-            nonlocal _bg_sentence_id, _bg_target_word_id, source_translation
-            with get_session(language) as bg_session:
-                bg_sentence, bg_target_word, _ = choose_next(bg_session, threshold)
-                _bg_sentence_id = bg_sentence.id
-                _bg_target_word_id = bg_target_word.id if bg_target_word else None
-                source_translation = translate_to_source(
-                    bg_sentence, language, source, model, api_key,
-                )
+            nonlocal _bg_sentence_id, _bg_target_word_id, source_translation, _bg_error
+            _bg_error = None
+            try:
+                with get_session(language) as bg_session:
+                    bg_sentence, bg_target_word, _ = choose_next(bg_session, threshold)
+                    _bg_sentence_id = bg_sentence.id
+                    _bg_target_word_id = bg_target_word.id if bg_target_word else None
+                    source_translation = translate_to_source(
+                        bg_sentence, language, source, model, api_key,
+                    )
+            except BaseException as e:
+                _bg_error = e
 
         def load_prepared() -> None:
             """Load the background-prepared sentence into the main session."""
             nonlocal sentence, target_word
+            if _bg_error is not None:
+                raise _bg_error
             session.expire_all()
             sentence = session.get(Sentence, _bg_sentence_id)
             target_word = session.get(Word, _bg_target_word_id) if _bg_target_word_id else None
@@ -176,7 +183,14 @@ def study(
                 bg_ready.wait()
                 clear_previous()
             if bg_ready is not None:
-                load_prepared()
+                try:
+                    load_prepared()
+                except Exception as e:
+                    CONSOLE.print(Text(f'Error: {e}', style='red'))
+                    CONSOLE.print(Text('Retrying...', style='dim'))
+                    prepare_next()
+                    load_prepared()
+                    clear_previous(2)
 
             is_first_attempt = sentence.status == 0
 
@@ -204,10 +218,18 @@ def study(
 
             # 3) Evaluate
             CONSOLE.print(EVALUATION_IN_PROGRESS)
-            evaluation = evaluate(
-                sentence, source_translation, user_translation,
-                language, source, model, api_key,
-            )
+            try:
+                evaluation = evaluate(
+                    sentence, source_translation, user_translation,
+                    language, source, model, api_key,
+                )
+            except Exception as e:
+                clear_previous()
+                CONSOLE.print(Text(f'Error: {e}', style='red'))
+                CONSOLE.print(Text('Press Enter to retry...', style='dim'))
+                input()
+                clear_previous(4)
+                continue
             clear_previous()
 
             # 4) Show result

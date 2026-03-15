@@ -1,6 +1,8 @@
 from openai import OpenAI
 from typing import Generator
 
+from crossrs.utils.openai import api_call_with_retries
+
 __all__ = [
     'explain',
 ]
@@ -32,12 +34,13 @@ def explain(source_translation: str, user_translation: str,
             target_lang: str, source_lang: str, model: str,
             api_key: str) -> Generator[str, None, None]:
     """Stream an explanation for why the user's translation was incorrect."""
-    for event in OpenAI(api_key=api_key).responses.create(
+    stream = api_call_with_retries(lambda: OpenAI(api_key=api_key).responses.create(
         model=model,
         temperature=TEMPERATURE,
         input=generate_prompt(target_lang, source_lang,
                               source_translation, user_translation),
         stream=True,
-    ):
+    ))
+    for event in stream:
         if event.type == 'response.output_text.delta':
             yield event.delta
