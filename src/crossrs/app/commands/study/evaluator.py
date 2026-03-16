@@ -123,6 +123,7 @@ def cached_evaluation(sentence: Sentence, source_translation: str, user_translat
     with get_session(target_lang) as session:
         if cached := session.query(EvaluationCache).filter(
             EvaluationCache.sentence_id == sentence.id,
+            EvaluationCache.source_lang == source_lang,
             EvaluationCache.model == model,
             EvaluationCache.translation == user_translation,
         ).limit(1).first():
@@ -133,6 +134,7 @@ def cached_evaluation(sentence: Sentence, source_translation: str, user_translat
                                         model, api_key)
             session.add(EvaluationCache(
                 sentence_id=sentence.id,
+                source_lang=source_lang,
                 model=model,
                 translation=user_translation,
                 evaluation=output.model_dump_json(),

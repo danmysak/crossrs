@@ -108,6 +108,7 @@ class EvaluationCache(Base):
         ForeignKey('sentences.id', ondelete='CASCADE', onupdate='CASCADE'),
         primary_key=True,
     )
+    source_lang: Mapped[str] = mapped_column(primary_key=True)
     model: Mapped[str] = mapped_column(primary_key=True)
     translation: Mapped[str] = mapped_column(primary_key=True)
     evaluation: Mapped[str]
