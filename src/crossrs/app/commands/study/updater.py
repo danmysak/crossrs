@@ -23,6 +23,26 @@ def extract_words_from_text(text: str) -> set[str]:
     return {t.normalized for t in tokenize(text)}
 
 
+def mark_seen(sentence: Sentence, user_translation: str, session: Session) -> None:
+    """Set learnedness to 1 for any words at 0 in the sentence or user's translation."""
+    sentence_word_ids = {word.id for word in sentence.words}
+    translation_words = extract_words_from_text(user_translation)
+
+    if translation_words:
+        matching = session.query(Word).filter(Word.word.in_(translation_words)).all()
+        translation_word_ids = {w.id for w in matching}
+    else:
+        translation_word_ids = set()
+
+    all_word_ids = sentence_word_ids | translation_word_ids
+
+    if all_word_ids:
+        session.query(Word).filter(
+            Word.id.in_(all_word_ids),
+            Word.learnedness == 0,
+        ).update({Word.learnedness: 1}, synchronize_session=False)
+
+
 def mark_learned(sentence: Sentence, user_translation: str | None, session: Session) -> None:
     """Mark a sentence as learned and update learnedness for relevant words."""
     sentence.status = 2
@@ -72,6 +92,9 @@ def update_sentence(sentence: Sentence, is_correct: bool, is_first_attempt: bool
     session.query(Metadata).filter(Metadata.id == 1).update(
         {Metadata.total_rounds: Metadata.total_rounds + 1},
     )
+
+    if is_correct:
+        mark_seen(sentence, user_translation, session)
 
     if is_first_attempt:
         # First time seeing this sentence
