@@ -21,8 +21,10 @@ DEFAULT_THRESHOLD = 3
 @dataclass
 class WordStatsItem:
     learned: int = 0
+    in_progress: int = 0
     total: int = 0
     learned_occurrences: int = 0
+    in_progress_occurrences: int = 0
     total_occurrences: int = 0
 
 
@@ -32,7 +34,6 @@ class SentenceStatsData:
     in_queue: int = 0
     total: int = 0
     total_rounds: int = 0
-    targeted_words: int = 0
 
 
 def compute_word_stats(session: Session, threshold: int) -> WordStatsItem:
@@ -42,17 +43,21 @@ def compute_word_stats(session: Session, threshold: int) -> WordStatsItem:
         func.sum(Word.occurrences),
         func.sum(case((Word.learnedness >= threshold, 1), else_=0)),
         func.sum(case((Word.learnedness >= threshold, Word.occurrences), else_=0)),
+        func.sum(case((Word.learnedness.between(1, threshold - 1), 1), else_=0)),
+        func.sum(case((Word.learnedness.between(1, threshold - 1), Word.occurrences), else_=0)),
     ).one()
 
     return WordStatsItem(
         learned=int(row[2] or 0),
+        in_progress=int(row[4] or 0),
         total=int(row[0] or 0),
         learned_occurrences=int(row[3] or 0),
+        in_progress_occurrences=int(row[5] or 0),
         total_occurrences=int(row[1] or 0),
     )
 
 
-def compute_sentence_stats(session: Session, threshold: int) -> SentenceStatsData:
+def compute_sentence_stats(session: Session) -> SentenceStatsData:
     """Compute sentence statistics using SQL aggregation."""
     row = session.query(
         func.count(Sentence.id),
@@ -63,21 +68,11 @@ def compute_sentence_stats(session: Session, threshold: int) -> SentenceStatsDat
     meta = session.get(Metadata, 1)
     total_rounds = meta.total_rounds if meta else 0
 
-    targeted_words = session.query(
-        func.count(func.distinct(Sentence.target_word_id)),
-    ).filter(
-        Sentence.status == 1,
-        Sentence.target_word_id.is_not(None),
-    ).join(Word, Sentence.target_word_id == Word.id).filter(
-        Word.learnedness < threshold,
-    ).scalar()
-
     return SentenceStatsData(
         total=int(row[0]),
         total_rounds=total_rounds,
         learned=int(row[1] or 0),
         in_queue=int(row[2] or 0),
-        targeted_words=int(targeted_words or 0),
     )
 
 
@@ -106,7 +101,7 @@ def stats(
     """Display study statistics for the given language."""
     with get_session(language) as session:
         word_stats = compute_word_stats(session, threshold)
-        sentence_stats = compute_sentence_stats(session, threshold)
+        sentence_stats = compute_sentence_stats(session)
 
     console = Console(highlight=False)
 
@@ -121,17 +116,26 @@ def stats(
 
     # Word statistics
     console.print(format_section_title('Word Statistics'))
-    text = Text(f'{word_stats.learned} learned / {word_stats.total} total')
-    if word_stats.total_occurrences > 0:
-        coverage = word_stats.learned_occurrences / word_stats.total_occurrences
-        text.append(f' ')
-        text.append(Text(f'(coverage: {coverage:.1%})', style='dim'))
-    console.print(format_stats_label('Words'), text)
-    if sentence_stats.targeted_words > 0:
-        console.print(
-            format_stats_label('Targeted'),
-            Text(f'{sentence_stats.targeted_words} unlearned words in queue'),
-        )
+    total_occ = word_stats.total_occurrences or 1
+
+    def format_coverage(occurrences: int) -> str:
+        return f'(coverage: {occurrences / total_occ:.1%})'
+
+    learned_text = Text(f'{word_stats.learned} ')
+    learned_text.append(Text(format_coverage(word_stats.learned_occurrences), style='dim'))
+    console.print(format_stats_label('Learned'), learned_text)
+
+    in_progress_text = Text(f'{word_stats.in_progress} ')
+    in_progress_text.append(Text(format_coverage(word_stats.in_progress_occurrences), style='dim'))
+    console.print(format_stats_label('In progress'), in_progress_text)
+
+    combined = word_stats.learned + word_stats.in_progress
+    combined_occ = word_stats.learned_occurrences + word_stats.in_progress_occurrences
+    combined_text = Text(f'{combined} ')
+    combined_text.append(Text(format_coverage(combined_occ), style='dim'))
+    console.print(format_stats_label('Learned + in progress'), combined_text)
+
+    console.print(format_stats_label('Total'), word_stats.total)
     console.print()
 
     # Total rounds

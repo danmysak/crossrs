@@ -372,7 +372,7 @@ class TestStats:
         populate_db(db_session, corpus_file)
 
         word_stats = compute_word_stats(db_session, threshold=3)
-        sentence_stats = compute_sentence_stats(db_session, threshold=3)
+        sentence_stats = compute_sentence_stats(db_session)
 
         assert sentence_stats.learned == 0
         assert sentence_stats.in_queue == 0
@@ -394,7 +394,7 @@ class TestStats:
                         session=db_session)
         db_session.flush()
 
-        sentence_stats = compute_sentence_stats(db_session, threshold=3)
+        sentence_stats = compute_sentence_stats(db_session)
         assert sentence_stats.in_queue == 1
         assert sentence_stats.learned == 0
         assert sentence_stats.total_rounds == 1
