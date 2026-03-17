@@ -36,7 +36,7 @@ crossrs init <target-lang> <corpus>
 ## Study a Language
 
 ```bash
-crossrs study <target-lang> <source-lang> [--threshold T] [--model <GPT_MODEL>] [--api-key <OPENAI_KEY>]
+crossrs study <target-lang> <source-lang> [--threshold T] [--model <GPT_MODEL>] [--api-key <OPENAI_KEY>] [--listen] [--asr-model <ASR_MODEL>]
 ```
 
 * **`<target-lang>`** — the language code you initialized earlier.
@@ -44,8 +44,20 @@ crossrs study <target-lang> <source-lang> [--threshold T] [--model <GPT_MODEL>] 
 * **`--threshold` / `-t`** — the learnedness threshold for words (default: 3). A word is considered fully learned once it has appeared in this many learned sentences.
 * **`--model`** — the GPT model to use for translation and evaluation.
 * **`--api-key`** — your OpenAI API key.
+* **`--listen`** — enable voice input: press Enter to record your translation via microphone instead of typing.
+* **`--asr-model`** — the ASR model for speech-to-text (e.g., `gpt-4o-transcribe`). Required when `--listen` is used.
 
-Instead of passing `--model` and `--api-key` each time, you can set the environment variables `CROSSRS_MODEL` and `CROSSRS_API_KEY`.
+Instead of passing `--model`, `--api-key`, and `--asr-model` each time, you can set the environment variables `CROSSRS_MODEL`, `CROSSRS_API_KEY`, and `CROSSRS_ASR_MODEL`.
+
+### Voice Input
+
+When `--listen` is enabled, pressing Enter at the translation prompt starts recording. Speak your translation and press Enter again to stop. The recording is transcribed and submitted automatically. You can also type your translation directly — only an empty Enter triggers recording.
+
+Voice input requires the `audio` extra:
+
+```bash
+pipx install crossrs[audio]   # or: pip install crossrs[audio]
+```
 
 ## View Your Progress
 

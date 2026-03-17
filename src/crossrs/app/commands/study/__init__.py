@@ -135,8 +135,33 @@ def study(
                 help='Learnedness threshold for words to be considered fully learned.',
             ),
         ] = DEFAULT_THRESHOLD,
+        listen: Annotated[
+            bool,
+            Option(
+                '--listen',
+                help='Record the response as audio and transcribe it into text.',
+            ),
+        ] = False,
+        asr_model: Annotated[
+            str,
+            Option(
+                '--asr-model',
+                envvar='CROSSRS_ASR_MODEL',
+                help='ASR model for speech-to-text transcription (e.g., "gpt-4o-transcribe").',
+            ),
+        ] = '',
 ) -> None:
     """Launch an interactive study session."""
+    voice_input = None
+    if listen:
+        from crossrs.asr import ensure_audio, build_voice_input
+        ensure_audio()
+        if not asr_model:
+            from crossrs.utils.typer import typer_raise
+            typer_raise('ASR model is required when --listen is used. '
+                        'Set --asr-model or CROSSRS_ASR_MODEL environment variable.')
+        voice_input = build_voice_input(CONSOLE, language, asr_model, api_key)
+
     with get_session(language) as session:
         sentence: Sentence
         target_word: Word | None
@@ -213,7 +238,8 @@ def study(
 
             # 2) Show source translation and get user input
             formatted_prompt = Text(source_translation, style='bold')
-            user_translation = ask(CONSOLE, formatted_prompt, QUIT_OPTION)
+            user_translation = ask(CONSOLE, formatted_prompt, QUIT_OPTION,
+                                   voice_input=voice_input)
             clear_previous(2)
             CONSOLE.print(formatted_prompt)
             CONSOLE.print(user_translation)

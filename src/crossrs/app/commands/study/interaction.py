@@ -61,8 +61,12 @@ def ask(
         console: Console,
         prompt: Text,
         extra_options: list[ExtraOption],
+        voice_input: Callable[[], str | None] | None = None,
 ) -> str:
-    """Prompt the user for input or to choose one of the extra options."""
+    """Prompt the user for input or to choose one of the extra options.
+
+    If voice_input is provided, pressing Enter (empty input) triggers voice recording.
+    """
     options_prompt, options_mapping = build_options(extra_options)
 
     def print_prompt() -> None:
@@ -75,11 +79,23 @@ def ask(
     print_prompt()
     while True:
         response = PromptSession().prompt()
-        if option := options_mapping.get(normalize_key(response)):
+        normalized = response.strip()
+        if not normalized and voice_input is not None:
+            clear_previous()  # Clear just the empty input line; keep the prompt
+            text = voice_input()
+            if text is not None:
+                # Print transcription below prompt so caller sees 2 lines (prompt + text)
+                console.print(text)
+                return text
+            print_prompt()
+            continue
+        if option := options_mapping.get(normalize_key(normalized)):
             clear_previous(2)  # Clear both user input and prompt line
             result = option.action()
             if option.returns or result is True:
                 return ''
             print_prompt()
+        elif normalized:
+            return normalized
         else:
-            return response.strip()
+            return ''
