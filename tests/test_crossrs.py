@@ -409,3 +409,65 @@ class TestDelete:
         assert db_path.exists()
         db_path.unlink()
         assert not db_path.exists()
+
+
+# ─── Explainer Tests ────────────────────────────────────────────────────────────
+
+from unittest.mock import patch
+from crossrs.app.commands.study.explainer import (
+    explain, generate_prompt, ExplanationResult, ExplanationOutput,
+)
+
+
+class TestExplainerPrompt:
+    def test_prompt_contains_all_inputs(self):
+        prompt = generate_prompt('uk', 'en', 'Hello world', 'Привіт світ', 'Привіт, світе')
+        assert '`uk`' in prompt
+        assert '`en`' in prompt
+        assert '`Hello world`' in prompt
+        assert '`Привіт світ`' in prompt
+        assert '`Привіт, світе`' in prompt
+
+    def test_prompt_asks_to_compare(self):
+        prompt = generate_prompt('uk', 'en', 'Hi', 'Привіт', 'Привіт!')
+        assert 'Compare' in prompt
+        assert 'is_user_correct' in prompt
+
+    def test_prompt_discourages_boilerplate(self):
+        prompt = generate_prompt('uk', 'en', 'Hi', 'Привіт', 'Привіт!')
+        assert 'The correction is justified' in prompt
+
+
+class TestExplainerCall:
+    @patch('crossrs.app.commands.study.explainer.api_call_with_retries')
+    def test_corrections_justified(self, mock_retry):
+        mock_retry.return_value = ExplanationOutput(
+            is_user_correct=False,
+            explanation='The word "a" should be "some" in this context.',
+        )
+        result = explain('source', 'user trans', 'corrected trans',
+                         'uk', 'en', 'gpt-5.4', 'fake-key')
+        assert isinstance(result, ExplanationResult)
+        assert result.is_user_correct is False
+        assert 'some' in result.explanation
+
+    @patch('crossrs.app.commands.study.explainer.api_call_with_retries')
+    def test_user_was_correct(self, mock_retry):
+        mock_retry.return_value = ExplanationOutput(
+            is_user_correct=True,
+            explanation='',
+        )
+        result = explain('source', 'user trans', 'corrected trans',
+                         'uk', 'en', 'gpt-5.4', 'fake-key')
+        assert result.is_user_correct is True
+        assert result.explanation == ''
+
+    @patch('crossrs.app.commands.study.explainer.api_call_with_retries')
+    def test_calls_api_with_reasoning(self, mock_retry):
+        mock_retry.return_value = ExplanationOutput(
+            is_user_correct=False, explanation='test',
+        )
+        explain('src', 'user', 'corrected', 'uk', 'en', 'gpt-5.4', 'key')
+        mock_retry.assert_called_once()
+        call_args = mock_retry.call_args
+        assert callable(call_args[0][0])

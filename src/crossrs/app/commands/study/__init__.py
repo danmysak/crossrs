@@ -1,10 +1,7 @@
-import os
 import threading
-from typing import Annotated
+from typing import Annotated, Callable
 
 from rich.console import Console
-from rich.live import Live
-from rich.markdown import Markdown
 from rich.text import Text
 from typer import Argument, Option
 
@@ -14,7 +11,7 @@ from crossrs.db.models import Sentence, Word
 from crossrs.diff import compute_diff
 from crossrs.utils.console import clear_previous
 from .chooser import choose_next, get_round_counts
-from .evaluator import evaluate, translate_to_source
+from .evaluator import evaluate, invalidate_evaluation_cache, translate_to_source
 from .explainer import explain
 from .interaction import ask, ExtraOption
 from .updater import update_sentence, undo_learned
@@ -45,21 +42,30 @@ QUIT_OPTION = [ExtraOption(QUIT_TITLE, lambda: exit(0))]
 
 
 def build_explanation_option(source_translation: str,
-                             user_translation: str, target_lang: str,
+                             user_translation: str,
+                             corrected_translation: str,
+                             target_lang: str,
                              source_lang: str, model: str,
-                             api_key: str) -> list[ExtraOption]:
+                             api_key: str,
+                             on_correct: Callable[[], None]) -> list[ExtraOption]:
     """Build an option to explain why the user's translation was incorrect."""
-    def do_explain():
-        chunks: list[str] = []
-        with CONSOLE.screen():
-            with Live(console=CONSOLE, transient=True) as live:
-                for chunk in explain(source_translation, user_translation,
-                                     target_lang, source_lang, model, api_key):
-                    chunks.append(chunk)
-                    live.update(Markdown(''.join(chunks)))
-        os.environ['LESS'] = '-R'
-        with CONSOLE.pager(styles=True):
-            CONSOLE.print(Markdown(''.join(chunks)))
+    def do_explain() -> bool | None:
+        CONSOLE.print(Text('Analyzing...', style='dim'))
+        try:
+            result = explain(source_translation, user_translation,
+                             corrected_translation,
+                             target_lang, source_lang, model, api_key)
+        except Exception as e:
+            clear_previous()
+            CONSOLE.print(Text(f'Error: {e}', style='red'))
+            return None
+        clear_previous()
+        if result.is_user_correct:
+            on_correct()
+            return True
+        else:
+            CONSOLE.print(Text(result.explanation))
+            return None
 
     return [ExtraOption(EXPLAIN_TITLE, do_explain)]
 
@@ -106,13 +112,6 @@ def study(
             str,
             Argument(help='Source language code to translate into (e.g., "en").'),
         ],
-        threshold: Annotated[
-            int,
-            Option(
-                '--threshold', '-t',
-                help='Learnedness threshold for words to be considered fully learned.',
-            ),
-        ] = DEFAULT_THRESHOLD,
         model: Annotated[
             str,
             Option(
@@ -120,7 +119,7 @@ def study(
                 envvar='CROSSRS_MODEL',
                 help='GPT model for translation and evaluation.',
             ),
-        ] = 'gpt-4.1-mini',
+        ],
         api_key: Annotated[
             str,
             Option(
@@ -128,13 +127,16 @@ def study(
                 envvar='CROSSRS_API_KEY',
                 help='OpenAI API key.',
             ),
-        ] = '',
+        ],
+        threshold: Annotated[
+            int,
+            Option(
+                '--threshold', '-t',
+                help='Learnedness threshold for words to be considered fully learned.',
+            ),
+        ] = DEFAULT_THRESHOLD,
 ) -> None:
     """Launch an interactive study session."""
-    if not api_key:
-        from crossrs.utils.typer import typer_raise
-        typer_raise('API key is required. Set --api-key or CROSSRS_API_KEY environment variable.')
-
     with get_session(language) as session:
         sentence: Sentence
         target_word: Word | None
@@ -284,7 +286,9 @@ def study(
 
             explain_option = (
                 build_explanation_option(source_translation, user_translation,
-                                        language, source, model, api_key)
+                                        evaluation.corrected_translation or sentence.sentence,
+                                        language, source, model, api_key,
+                                        on_correct=do_mark_correct)
                 if not evaluation.is_correct else []
             )
             mark_correct_option = (
@@ -303,10 +307,13 @@ def study(
                 shown_sentence.rounds = saved_rounds
                 update_sentence(shown_sentence, True, is_first_attempt,
                                 target_word, user_translation, session)
+                invalidate_evaluation_cache(shown_sentence, user_translation,
+                                            source, model, language, session)
                 session.commit()
                 bg_ready.wait()
                 clear_previous(2)
-                CONSOLE.print(Text(f'{CORRECT_MARK}  Marked as correct.', style='dim'))
+                CONSOLE.print(Text(f'{CORRECT_MARK} Marked as correct.', style='dim'))
+                CONSOLE.print(SECTION_DELIMITER)
                 continue
 
             if removed:
@@ -316,6 +323,7 @@ def study(
                 bg_ready.wait()
                 clear_previous(2)
                 CONSOLE.print(Text('Sentence removed.', style='dim'))
+                CONSOLE.print(SECTION_DELIMITER)
                 continue
 
             clear_previous(2)

@@ -11,6 +11,7 @@ from crossrs.utils.strings import normalize
 
 __all__ = [
     'evaluate',
+    'invalidate_evaluation_cache',
     'translate_to_source',
     'Evaluation',
 ]
@@ -163,3 +164,15 @@ def evaluate(sentence: Sentence, source_translation: str, user_translation: str,
     output = cached_evaluation(sentence, source_translation, user_translation,
                                target_lang, source_lang, model, api_key)
     return build_evaluation(output, sentence, user_translation)
+
+
+def invalidate_evaluation_cache(sentence: Sentence, user_translation: str,
+                                source_lang: str, model: str,
+                                target_lang: str, session) -> None:
+    """Delete cached evaluation for a sentence+translation marked as correct."""
+    session.query(EvaluationCache).filter(
+        EvaluationCache.sentence_id == sentence.id,
+        EvaluationCache.source_lang == source_lang,
+        EvaluationCache.model == model,
+        EvaluationCache.translation == user_translation,
+    ).delete()

@@ -18,7 +18,7 @@ OPTION_DELIMITER = ' | '
 @dataclass
 class ExtraOption:
     title: str
-    action: Callable[[], None]
+    action: Callable[[], bool | None]
     key: str | None = None  # Custom key; defaults to first character of title
     returns: bool = False  # If True, ask() returns empty string after action
 
@@ -64,17 +64,22 @@ def ask(
 ) -> str:
     """Prompt the user for input or to choose one of the extra options."""
     options_prompt, options_mapping = build_options(extra_options)
-    console.print(prompt, end='')
-    for option_prompt in options_prompt:
-        console.print(Text(OPTION_DELIMITER, style='dim'), end='')
-        console.print(*option_prompt, sep='', end='')
-    console.print()
+
+    def print_prompt() -> None:
+        console.print(prompt, end='')
+        for option_prompt in options_prompt:
+            console.print(Text(OPTION_DELIMITER, style='dim'), end='')
+            console.print(*option_prompt, sep='', end='')
+        console.print()
+
+    print_prompt()
     while True:
         response = PromptSession().prompt()
         if option := options_mapping.get(normalize_key(response)):
-            clear_previous()
-            option.action()
-            if option.returns:
+            clear_previous(2)  # Clear both user input and prompt line
+            result = option.action()
+            if option.returns or result is True:
                 return ''
+            print_prompt()
         else:
             return response.strip()
